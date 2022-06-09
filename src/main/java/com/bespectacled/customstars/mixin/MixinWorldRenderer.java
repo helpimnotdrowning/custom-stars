@@ -1,6 +1,8 @@
 package com.bespectacled.customstars.mixin;
 
 import java.util.Random;
+
+import net.minecraft.text.Text;
 import org.apache.logging.log4j.Level;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
@@ -26,7 +28,11 @@ import net.minecraft.client.render.VertexConsumer;
 import net.minecraft.client.render.VertexFormat;
 import net.minecraft.client.render.VertexFormats;
 import net.minecraft.client.render.WorldRenderer;
-import net.minecraft.world.gen.random.AtomicSimpleRandom;
+import net.minecraft.util.math.random.CheckedRandom;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+
+import static net.minecraft.client.render.VertexFormat.DrawMode.QUADS;
+import static net.minecraft.client.render.VertexFormats.POSITION_COLOR;
 
 @Mixin(value = WorldRenderer.class, priority = 1)
 public class MixinWorldRenderer {
@@ -34,8 +40,8 @@ public class MixinWorldRenderer {
     
     @Shadow private VertexBuffer starsBuffer;
     
-    @Inject(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)V", at = @At("HEAD"), cancellable = true)
-    private void injectRenderStarsWithNoise(BufferBuilder builder, CallbackInfo info) {
+    @Inject(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)Lnet/minecraft/client/render/BufferBuilder$BuiltBuffer;", at = @At("HEAD"), cancellable = true)
+    private void injectRenderStarsWithNoise(BufferBuilder builder, CallbackInfoReturnable<BufferBuilder.BuiltBuffer> info) {
         if (STARS_CONFIG.starNoise) {
             this.renderStarsWithNoise(
                 builder, 
@@ -50,17 +56,17 @@ public class MixinWorldRenderer {
         }
     }
  
-    @ModifyConstant(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)V", constant = @Constant(floatValue = 0.15f))
+    @ModifyConstant(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)Lnet/minecraft/client/render/BufferBuilder$BuiltBuffer;", constant = @Constant(floatValue = 0.15f))
     private float modifyStarBaseSize(float baseSize) {
         return STARS_CONFIG.baseSize;
     }
 
-    @ModifyConstant(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)V", constant = @Constant(floatValue = 0.1f))
+    @ModifyConstant(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)Lnet/minecraft/client/render/BufferBuilder$BuiltBuffer;", constant = @Constant(floatValue = 0.1f))
     private float modifyMaxSizeMultiplier(float sizeModifier) {
         return STARS_CONFIG.maxSizeMultiplier;
     }
 
-    @ModifyConstant(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)V", constant = @Constant(intValue = 1500))
+    @ModifyConstant(method = "renderStars(Lnet/minecraft/client/render/BufferBuilder;)Lnet/minecraft/client/render/BufferBuilder$BuiltBuffer;", constant = @Constant(intValue = 1500))
     private int modifyStarCount(int starCount) {
         return STARS_CONFIG.starCount;
     }
@@ -79,16 +85,22 @@ public class MixinWorldRenderer {
     private void reloadStars(CallbackInfo info) {
         if (CustomStars.STARS_RERENDER_OBSERVER.update()) {
             CustomStars.log(Level.INFO, "Star settings modified, reloading buffer...");
-            
-            Tessellator tess = Tessellator.getInstance();
-            BufferBuilder builder = tess.getBuffer();
-            RenderSystem.setShader(GameRenderer::getPositionShader);
 
+            BufferBuilder builder = Tessellator.getInstance().getBuffer();
+        /**/System.out.println("BUILDING " + builder.isBuilding());
+            //builder.begin(QUADS, POSITION_COLOR); //testing, copied from somewhere else
+            RenderSystem.setShader(GameRenderer::getPositionShader);
+        /**/System.out.println("BUILDING " + builder.isBuilding());
             this.starsBuffer = new VertexBuffer();
+        /**/System.out.println("BUILDING " + builder.isBuilding());
+            builder.begin(QUADS, POSITION_COLOR); // if this line exists, crashes with "java.lang.IllegalStateException: Already building!"
             ((MixinWorldRendererInvoker)this).rerenderStars(builder);
-           
-            builder.end();
-            this.starsBuffer.upload(builder);
+
+        /**/System.out.println("BUILDING " + builder.isBuilding());
+
+            this.starsBuffer.upload(builder.end()); // otherwise, it crashes with "java.lang.IllegalStateException: Not building!"
+            // i spent 2.5 hours on this
+            // admittedly, I don't know what I'm doing.
         }
     }
     
@@ -114,8 +126,8 @@ public class MixinWorldRenderer {
         double noiseThreshold
     ) {
         Random random = new Random(10842L);
-        OctaveSimplexNoise fieldSampler = new OctaveSimplexNoise(new AtomicSimpleRandom(seed), 3);
-        
+        OctaveSimplexNoise fieldSampler = new OctaveSimplexNoise(new CheckedRandom(seed), 3);
+
         // Cap noise threshold
         if (noiseThreshold > 1.0)
             noiseThreshold = 1.0;
